@@ -22,4 +22,18 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
+add_executable(localization_monitor src/localization_monitor.cpp)
+ament_target_dependencies(localization_monitor rclcpp geometry_msgs)
+
+install(TARGETS
+  localization_monitor
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(DIRECTORY
+  launch
+  config
+  DESTINATION share/${PROJECT_NAME}
+)
+
 ament_package()
