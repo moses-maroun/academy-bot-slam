@@ -1,15 +1,4 @@
-// localization_monitor.cpp
-// ---------------------------------------------------------------------------
-// Session 2 homework — is AMCL actually localised, or just running?
-//
-// RViz shows a cloud of particles that visibly tightens as the robot drives.
-// This node puts a number on that. It subscribes to /amcl_pose, pulls the
-// position variance out of the covariance matrix, and reports the standard
-// deviation once a second alongside a CONVERGED / SEARCHING verdict.
-//
-// Before an initial pose is set, AMCL publishes nothing at all -- so "waiting
-// for /amcl_pose" is itself the answer to why map->odom does not exist yet.
-// ---------------------------------------------------------------------------
+#include <chrono>
 #include <cmath>
 #include <memory>
 
@@ -17,63 +6,76 @@
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 
 using namespace std::chrono_literals;
-using PoseCov = geometry_msgs::msg::PoseWithCovarianceStamped;
 
 class LocalizationMonitor : public rclcpp::Node
 {
 public:
-  LocalizationMonitor() : Node("localization_monitor")
+  LocalizationMonitor()
+  : Node("localization_monitor")
   {
-    report_period_    = declare_parameter<double>("report_period", 1.0);
-    converged_sigma_  = declare_parameter<double>("converged_sigma", 0.25);
+    this->declare_parameter<double>("report_period", 1.0);
+    this->declare_parameter<double>("converged_sigma", 0.25);
 
-    pose_sub_ = create_subscription<PoseCov>(
-      "amcl_pose", 10,
-      [this](const PoseCov::SharedPtr msg) { latest_ = *msg; have_pose_ = true; });
+    report_period_ = this->get_parameter("report_period").as_double();
+    converged_sigma_ = this->get_parameter("converged_sigma").as_double();
 
-    timer_ = create_wall_timer(
+    subscription_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+      "/amcl_pose", 10,
+      std::bind(&LocalizationMonitor::pose_callback, this, std::placeholders::_1));
+
+    timer_ = this->create_wall_timer(
       std::chrono::duration<double>(report_period_),
       std::bind(&LocalizationMonitor::report, this));
 
-    RCLCPP_INFO(get_logger(),
-      "localization_monitor: reporting every %.1fs, converged below %.2f m.",
+    RCLCPP_INFO(this->get_logger(),
+      "localization_monitor started. Waiting for /amcl_pose (report every %.2fs, converged below sigma=%.2fm)...",
       report_period_, converged_sigma_);
   }
 
 private:
+  void pose_callback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg)
+  {
+    latest_pose_ = msg;
+    have_pose_ = true;
+  }
+
   void report()
   {
     if (!have_pose_) {
-      RCLCPP_WARN(get_logger(),
-        "No /amcl_pose yet — set the initial pose in RViz (2D Pose Estimate).");
+      RCLCPP_WARN(this->get_logger(),
+        "No /amcl_pose received yet — AMCL has not been given an initial pose. "
+        "Use '2D Pose Estimate' in RViz.");
       return;
     }
 
-    const auto & p = latest_.pose.pose.position;
-    const auto & q = latest_.pose.pose.orientation;
-    const auto & c = latest_.pose.covariance;
+    const auto & pose = latest_pose_->pose.pose;
+    const double x = pose.position.x;
+    const double y = pose.position.y;
 
-    // Yaw from the quaternion, without pulling in tf2 for two lines of algebra.
-    const double yaw = std::atan2(2.0 * (q.w * q.z + q.x * q.y),
-                                  1.0 - 2.0 * (q.y * q.y + q.z * q.z));
+    const double siny_cosp = 2.0 * (pose.orientation.w * pose.orientation.z +
+                                     pose.orientation.x * pose.orientation.y);
+    const double cosy_cosp = 1.0 - 2.0 * (pose.orientation.y * pose.orientation.y +
+                                           pose.orientation.z * pose.orientation.z);
+    const double yaw = std::atan2(siny_cosp, cosy_cosp);
 
-    // Covariance is row-major 6x6: index 0 is var(x), index 7 is var(y).
-    // Clamp at zero: AMCL's very first published pose can carry a tiny
-    // negative variance, and sqrt() of that is NaN, which compares false
-    // against every threshold and silently reads as "never converged".
-    const double sigma = std::sqrt(std::max({c[0], c[7], 0.0}));
+    const auto & cov = latest_pose_->pose.covariance;
+    const double var_x = cov[0];
+    const double var_y = cov[7];
+    const double sigma = std::sqrt(std::max(var_x, var_y));
 
-    RCLCPP_INFO(get_logger(),
-      "x=%6.2f  y=%6.2f  yaw=%6.1f deg   sigma=%.3f m   %s",
-      p.x, p.y, yaw * 180.0 / M_PI, sigma,
-      sigma < converged_sigma_ ? "CONVERGED" : "SEARCHING");
+    const std::string verdict = (sigma < converged_sigma_) ? "CONVERGED" : "SEARCHING";
+
+    RCLCPP_INFO(this->get_logger(),
+      "x=%.3f y=%.3f yaw=%.3f rad | sigma=%.3f m | %s",
+      x, y, yaw, sigma, verdict.c_str());
   }
 
-  rclcpp::Subscription<PoseCov>::SharedPtr pose_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr subscription_;
   rclcpp::TimerBase::SharedPtr timer_;
-  PoseCov latest_;
+  geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr latest_pose_;
   bool have_pose_{false};
-  double report_period_, converged_sigma_;
+  double report_period_{1.0};
+  double converged_sigma_{0.25};
 };
 
 int main(int argc, char ** argv)
