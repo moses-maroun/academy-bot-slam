@@ -111,10 +111,9 @@ kick in. Block its path with a chair in RViz's view to trigger them live.
 | `acadbot_gazebo`      | Gazebo Harmonic world, robot spawn, `ros_gz` bridge |
 | `acadbot_control`     | **C++** nodes: `square_driver` (drift demo), `patrol_commander` (Nav2 client) |
 | `acadbot_slam`        | `slam_toolbox` mapping + localization configs/launch |
-| `acadbot_localization` | `map_server` + AMCL on a saved map + **C++** `localization_monitor` (built as the Session-2 homework; this is the course-official version) |
+| `acadbot_localization` | Standalone `map_server` + AMCL localization launch, with a convergence-monitoring node (Session-2 homework) |
 | `acadbot_navigation`  | Nav2 params (incl. recovery behaviors), maps, launch |
 | `acadbot_bringup`     | One-command launch files per session |
-| `acadbot_localization` | Standalone `map_server` + AMCL localization launch, with a convergence-monitoring node |
 
 See [`PROJECT.md`](PROJECT.md) for the full architecture, the TF tree, the topic
 graph and the session-by-session learning outcomes.
