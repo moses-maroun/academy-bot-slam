@@ -61,7 +61,6 @@ echo "==> Launching '${CONTAINER_NAME}' from image '${IMAGE_TAG}'"
 exec docker run -it --rm \
     --name "${CONTAINER_NAME}" \
     --network host \
-    --ipc host \
     "${GPU_ARGS[@]}" \
     --env DISPLAY="${DISPLAY:-:0}" \
     --env QT_X11_NO_MITSHM=1 \
