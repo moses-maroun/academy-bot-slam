@@ -4,6 +4,8 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
+#include <vector>
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -126,21 +128,26 @@ private:
       return;
     }
 
-    const bool reached_pickup =
-      navigate_to("to_pickup", job.pickup, locations_.at(job.pickup));
+    const std::vector<std::pair<std::string, std::string>> legs{
+      {"to_pickup", job.pickup},
+      {"to_dropoff", job.dropoff},
+    };
 
-    if (!reached_pickup) {
-      result->success = false;
-      result->final_leg = "to_pickup";
-      result->message = "failed to reach pickup '" + job.pickup + "'";
-      goal_handle->abort(result);
-      finish_job(job_id, "FAILED", result->message);
-      return;
+    for (const auto & [leg, location_name] : legs) {
+      const bool reached = navigate_to(leg, location_name, locations_.at(location_name));
+      if (!reached) {
+        result->success = false;
+        result->final_leg = leg;
+        result->message = "failed to reach " + location_name;
+        goal_handle->abort(result);
+        finish_job(job_id, "FAILED", result->message);
+        return;
+      }
     }
 
     result->success = true;
     result->final_leg = "";
-    result->message = "reached pickup '" + job.pickup + "' (dropoff leg not implemented yet)";
+    result->message = "delivered";
     goal_handle->succeed(result);
     finish_job(job_id, "SUCCEEDED", result->message);
   }
