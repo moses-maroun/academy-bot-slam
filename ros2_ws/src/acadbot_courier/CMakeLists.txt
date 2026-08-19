@@ -11,6 +11,8 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
+find_package(nav2_msgs REQUIRED)
+find_package(tf2 REQUIRED)
 find_package(acadbot_courier_msgs REQUIRED)
 
 include_directories(include)
@@ -19,7 +21,8 @@ add_executable(courier_dispatcher src/courier_dispatcher.cpp)
 ament_target_dependencies(courier_dispatcher rclcpp acadbot_courier_msgs)
 
 add_executable(courier_executor src/courier_executor.cpp)
-ament_target_dependencies(courier_executor rclcpp rclcpp_action acadbot_courier_msgs)
+ament_target_dependencies(courier_executor
+  rclcpp rclcpp_action nav2_msgs tf2 acadbot_courier_msgs)
 
 install(TARGETS
   courier_dispatcher
