@@ -1,0 +1,24 @@
+# courier_params.yaml
+# Per-node behavior limits for the courier. Locations live separately in
+# locations.yaml (loaded by both nodes via the '/**' wildcard); this file is
+# the two nodes' own limits, so each block is keyed to its node name.
+courier_dispatcher:
+  ros__parameters:
+    use_sim_time: true
+    # Seconds an accepted job can sit unclaimed by the deliver_package
+    # action before the dispatcher frees itself back up.
+    pending_job_timeout: 30.0
+
+courier_executor:
+  ros__parameters:
+    use_sim_time: true
+    frame_id: "map"
+    # Retries per leg before the job is failed (so max_retries=2 means up
+    # to 3 attempts total per leg).
+    max_retries: 2
+    # Seconds a single navigate_to_pose attempt is allowed to run before
+    # it's treated as a failed attempt and canceled — a backstop against
+    # Nav2 getting stuck without ever returning a result.
+    nav_goal_timeout: 90.0
+    # How often the deliver_package action publishes feedback.
+    feedback_period: 1.0

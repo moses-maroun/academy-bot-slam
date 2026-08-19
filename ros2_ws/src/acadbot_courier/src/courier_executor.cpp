@@ -40,6 +40,8 @@ public:
   {
     frame_id_ = declare_parameter<std::string>("frame_id", "map");
     max_retries_ = declare_parameter<int>("max_retries", 2);
+    nav_goal_timeout_ = declare_parameter<double>("nav_goal_timeout", 90.0);
+    feedback_period_ = declare_parameter<double>("feedback_period", 1.0);
 
     locations_ = acadbot_courier::load_locations(this);
 
@@ -67,7 +69,8 @@ public:
     nav_client_ = rclcpp_action::create_client<NavigateToPose>(this, "navigate_to_pose");
 
     feedback_timer_ = create_wall_timer(
-      1s, std::bind(&CourierExecutor::publish_feedback, this));
+      std::chrono::duration<double>(feedback_period_),
+      std::bind(&CourierExecutor::publish_feedback, this));
   }
 
 private:
@@ -241,8 +244,10 @@ private:
 
     nav_client_->async_send_goal(goal, opts);
 
+    const rclcpp::Time attempt_start = now();
     std::unique_lock<std::mutex> lock(state_mutex_);
     bool cancel_sent = false;
+    bool timed_out = false;
     while (!nav_done_) {
       if (!cancel_sent && goal_handle->is_canceling() && nav_goal_handle_) {
         cancel_sent = true;
@@ -251,12 +256,24 @@ private:
         RCLCPP_INFO(get_logger(), "  [%s] cancel requested — forwarding to Nav2", leg.c_str());
         nav_client_->async_cancel_goal(nav_goal_handle);
         lock.lock();
+      } else if (!cancel_sent && !timed_out && nav_goal_handle_ &&
+                 (now() - attempt_start).seconds() > nav_goal_timeout_) {
+        timed_out = true;
+        auto nav_goal_handle = nav_goal_handle_;
+        lock.unlock();
+        RCLCPP_WARN(get_logger(), "  [%s] attempt %d exceeded nav_goal_timeout (%.1fs) — canceling",
+                    leg.c_str(), attempt, nav_goal_timeout_);
+        nav_client_->async_cancel_goal(nav_goal_handle);
+        lock.lock();
       }
       nav_cv_.wait_for(lock, 100ms);
     }
 
     if (goal_handle->is_canceling()) {
       return LegResult::CANCELED;
+    }
+    if (timed_out) {
+      return LegResult::FAILED;
     }
     return nav_result_code_ == rclcpp_action::ResultCode::SUCCEEDED
       ? LegResult::SUCCEEDED : LegResult::FAILED;
@@ -305,6 +322,8 @@ private:
   std::unordered_map<std::string, PendingJob> pending_jobs_;
   std::string frame_id_;
   int max_retries_{2};
+  double nav_goal_timeout_{90.0};
+  double feedback_period_{1.0};
   rclcpp::Subscription<CourierJob>::SharedPtr job_accepted_sub_;
   rclcpp::Publisher<CourierJobStatus>::SharedPtr job_status_pub_;
   rclcpp_action::Server<DeliverPackage>::SharedPtr deliver_package_srv_;
