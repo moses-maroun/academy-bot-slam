@@ -18,7 +18,7 @@ add_executable(courier_dispatcher src/courier_dispatcher.cpp)
 ament_target_dependencies(courier_dispatcher rclcpp acadbot_courier_msgs)
 
 add_executable(courier_executor src/courier_executor.cpp)
-ament_target_dependencies(courier_executor rclcpp)
+ament_target_dependencies(courier_executor rclcpp acadbot_courier_msgs)
 
 install(TARGETS
   courier_dispatcher
