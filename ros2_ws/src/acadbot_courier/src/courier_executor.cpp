@@ -37,6 +37,7 @@ public:
   CourierExecutor() : Node("courier_executor")
   {
     frame_id_ = declare_parameter<std::string>("frame_id", "map");
+    max_retries_ = declare_parameter<int>("max_retries", 2);
 
     locations_ = acadbot_courier::load_locations(this);
 
@@ -134,11 +135,22 @@ private:
     };
 
     for (const auto & [leg, location_name] : legs) {
-      const bool reached = navigate_to(leg, location_name, locations_.at(location_name));
+      bool reached = false;
+      const int total_attempts = max_retries_ + 1;
+      for (int attempt = 1; attempt <= total_attempts; ++attempt) {
+        reached = navigate_to(leg, location_name, locations_.at(location_name), attempt);
+        if (reached) {
+          break;
+        }
+        RCLCPP_WARN(get_logger(), "  [%s] attempt %d/%d failed",
+                    leg.c_str(), attempt, total_attempts);
+      }
       if (!reached) {
         result->success = false;
         result->final_leg = leg;
-        result->message = "failed to reach " + location_name;
+        result->message =
+          "failed to reach " + location_name + " after " +
+          std::to_string(total_attempts) + " attempt(s)";
         goal_handle->abort(result);
         finish_job(job_id, "FAILED", result->message);
         return;
@@ -158,14 +170,14 @@ private:
   // thread keeps spinning underneath this call, since it's what actually
   // delivers the Nav2 client's callbacks that wake this wait up.
   bool navigate_to(const std::string & leg, const std::string & heading_to,
-                    const acadbot_courier::Location & pose)
+                    const acadbot_courier::Location & pose, int attempt)
   {
     {
       std::lock_guard<std::mutex> lock(state_mutex_);
       current_leg_ = leg;
       current_heading_to_ = heading_to;
       current_distance_remaining_ = 0.0f;
-      current_attempt_ = 1;
+      current_attempt_ = attempt;
       nav_done_ = false;
     }
 
@@ -182,8 +194,8 @@ private:
     goal.pose.pose.orientation.z = q.z();
     goal.pose.pose.orientation.w = q.w();
 
-    RCLCPP_INFO(get_logger(), "  [%s] navigating to '%s' (%.2f, %.2f, yaw=%.2f)",
-                leg.c_str(), heading_to.c_str(), pose.x, pose.y, pose.yaw);
+    RCLCPP_INFO(get_logger(), "  [%s] attempt %d: navigating to '%s' (%.2f, %.2f, yaw=%.2f)",
+                leg.c_str(), attempt, heading_to.c_str(), pose.x, pose.y, pose.yaw);
 
     rclcpp_action::Client<NavigateToPose>::SendGoalOptions opts;
     opts.goal_response_callback =
@@ -258,6 +270,7 @@ private:
   std::unordered_map<std::string, acadbot_courier::Location> locations_;
   std::unordered_map<std::string, PendingJob> pending_jobs_;
   std::string frame_id_;
+  int max_retries_{2};
   rclcpp::Subscription<CourierJob>::SharedPtr job_accepted_sub_;
   rclcpp::Publisher<CourierJobStatus>::SharedPtr job_status_pub_;
   rclcpp_action::Server<DeliverPackage>::SharedPtr deliver_package_srv_;
