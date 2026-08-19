@@ -11,6 +11,8 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 
+include_directories(include)
+
 add_executable(courier_dispatcher src/courier_dispatcher.cpp)
 ament_target_dependencies(courier_dispatcher rclcpp)
 
@@ -21,5 +23,8 @@ install(TARGETS
   courier_dispatcher
   courier_executor
   DESTINATION lib/${PROJECT_NAME})
+
+install(DIRECTORY config
+  DESTINATION share/${PROJECT_NAME})
 
 ament_package()

@@ -1,0 +1,26 @@
+# locations.yaml
+# Named pickup/dropoff locations for the courier, in the 'map' frame, loaded
+# identically by both courier_dispatcher and courier_executor via the '/**'
+# wildcard node key below.
+#
+# READ THIS BEFORE EDITING — the map frame is NOT the Gazebo world frame.
+# slam_toolbox/AMCL puts the map origin wherever the robot was standing when
+# mapping started. AcadBot spawns at Gazebo (-3.0, -2.0), so:
+#
+#       map_x = gazebo_x + 3.0        map_y = gazebo_y + 2.0
+#
+# (same convention as acadbot_control/config/patrol_waypoints.yaml). The
+# coordinates below are placeholders — tune them from RViz's "Publish Point"
+# tool against your own map before demoing.
+/**:
+  ros__parameters:
+    location_names: ["reception", "lab_bench", "loading_dock"]
+    locations.reception.x: 0.6
+    locations.reception.y: 4.2
+    locations.reception.yaw: 0.0
+    locations.lab_bench.x: 5.5
+    locations.lab_bench.y: 0.6
+    locations.lab_bench.yaw: 0.0
+    locations.loading_dock.x: 6.2
+    locations.loading_dock.y: 4.2
+    locations.loading_dock.yaw: 3.14
