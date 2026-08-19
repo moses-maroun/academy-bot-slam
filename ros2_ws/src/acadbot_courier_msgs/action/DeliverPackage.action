@@ -1,0 +1,10 @@
+string job_id
+---
+bool success
+string final_leg
+string message
+---
+string leg               # "to_pickup" | "to_dropoff"
+string heading_to        # location name the robot is currently heading to
+float32 distance_remaining
+uint32 attempt
