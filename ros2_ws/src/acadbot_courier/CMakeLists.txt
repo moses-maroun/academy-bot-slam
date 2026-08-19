@@ -10,11 +10,12 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(acadbot_courier_msgs REQUIRED)
 
 include_directories(include)
 
 add_executable(courier_dispatcher src/courier_dispatcher.cpp)
-ament_target_dependencies(courier_dispatcher rclcpp)
+ament_target_dependencies(courier_dispatcher rclcpp acadbot_courier_msgs)
 
 add_executable(courier_executor src/courier_executor.cpp)
 ament_target_dependencies(courier_executor rclcpp)
