@@ -31,6 +31,8 @@ struct PendingJob
   std::string dropoff;
 };
 
+enum class LegResult { SUCCEEDED, FAILED, CANCELED };
+
 class CourierExecutor : public rclcpp::Node
 {
 public:
@@ -95,8 +97,10 @@ private:
   }
 
   rclcpp_action::CancelResponse handle_cancel(
-    const std::shared_ptr<GoalHandleDeliverPackage>)
+    const std::shared_ptr<GoalHandleDeliverPackage> goal_handle)
   {
+    RCLCPP_INFO(get_logger(), "Cancel requested for %s",
+                goal_handle->get_goal()->job_id.c_str());
     return rclcpp_action::CancelResponse::ACCEPT;
   }
 
@@ -135,17 +139,27 @@ private:
     };
 
     for (const auto & [leg, location_name] : legs) {
-      bool reached = false;
+      LegResult leg_result = LegResult::FAILED;
       const int total_attempts = max_retries_ + 1;
       for (int attempt = 1; attempt <= total_attempts; ++attempt) {
-        reached = navigate_to(leg, location_name, locations_.at(location_name), attempt);
-        if (reached) {
+        leg_result = navigate_to(leg, location_name, locations_.at(location_name),
+                                  attempt, goal_handle);
+        if (leg_result != LegResult::FAILED) {
           break;
         }
         RCLCPP_WARN(get_logger(), "  [%s] attempt %d/%d failed",
                     leg.c_str(), attempt, total_attempts);
       }
-      if (!reached) {
+
+      if (leg_result == LegResult::CANCELED) {
+        result->success = false;
+        result->final_leg = leg;
+        result->message = "canceled while heading to " + location_name;
+        goal_handle->canceled(result);
+        finish_job(job_id, "CANCELED", result->message);
+        return;
+      }
+      if (leg_result == LegResult::FAILED) {
         result->success = false;
         result->final_leg = leg;
         result->message =
@@ -169,8 +183,9 @@ private:
   // goal fails to even get an accept/reject response. The main executor
   // thread keeps spinning underneath this call, since it's what actually
   // delivers the Nav2 client's callbacks that wake this wait up.
-  bool navigate_to(const std::string & leg, const std::string & heading_to,
-                    const acadbot_courier::Location & pose, int attempt)
+  LegResult navigate_to(const std::string & leg, const std::string & heading_to,
+                         const acadbot_courier::Location & pose, int attempt,
+                         const std::shared_ptr<GoalHandleDeliverPackage> & goal_handle)
   {
     {
       std::lock_guard<std::mutex> lock(state_mutex_);
@@ -179,6 +194,7 @@ private:
       current_distance_remaining_ = 0.0f;
       current_attempt_ = attempt;
       nav_done_ = false;
+      nav_goal_handle_.reset();
     }
 
     NavigateToPose::Goal goal;
@@ -200,11 +216,13 @@ private:
     rclcpp_action::Client<NavigateToPose>::SendGoalOptions opts;
     opts.goal_response_callback =
       [this](NavGoalHandle::SharedPtr gh) {
+        std::lock_guard<std::mutex> lock(state_mutex_);
         if (!gh) {
-          std::lock_guard<std::mutex> lock(state_mutex_);
           nav_result_code_ = rclcpp_action::ResultCode::ABORTED;
           nav_done_ = true;
           nav_cv_.notify_all();
+        } else {
+          nav_goal_handle_ = gh;
         }
       };
     opts.feedback_callback =
@@ -224,8 +242,24 @@ private:
     nav_client_->async_send_goal(goal, opts);
 
     std::unique_lock<std::mutex> lock(state_mutex_);
-    nav_cv_.wait(lock, [this] { return nav_done_; });
-    return nav_result_code_ == rclcpp_action::ResultCode::SUCCEEDED;
+    bool cancel_sent = false;
+    while (!nav_done_) {
+      if (!cancel_sent && goal_handle->is_canceling() && nav_goal_handle_) {
+        cancel_sent = true;
+        auto nav_goal_handle = nav_goal_handle_;
+        lock.unlock();
+        RCLCPP_INFO(get_logger(), "  [%s] cancel requested — forwarding to Nav2", leg.c_str());
+        nav_client_->async_cancel_goal(nav_goal_handle);
+        lock.lock();
+      }
+      nav_cv_.wait_for(lock, 100ms);
+    }
+
+    if (goal_handle->is_canceling()) {
+      return LegResult::CANCELED;
+    }
+    return nav_result_code_ == rclcpp_action::ResultCode::SUCCEEDED
+      ? LegResult::SUCCEEDED : LegResult::FAILED;
   }
 
   void finish_job(const std::string & job_id, const std::string & state,
@@ -286,6 +320,7 @@ private:
   uint32_t current_attempt_{0};
   bool nav_done_{false};
   rclcpp_action::ResultCode nav_result_code_{rclcpp_action::ResultCode::UNKNOWN};
+  NavGoalHandle::SharedPtr nav_goal_handle_;
   std::condition_variable nav_cv_;
 };
 
